@@ -45,6 +45,20 @@ button.primary:disabled{opacity:.5;cursor:default}
 .card.fail{border-color:#5a2a30;background:#231418}
 .card.fail .url{color:var(--danger)}
 .sources .card{padding:10px 14px;margin-bottom:8px}
+.markdown h1{font-size:20px;margin:0 0 12px}
+.markdown h2{font-size:17px;margin:18px 0 8px}
+.markdown h3{font-size:15px;margin:14px 0 6px}
+.markdown h4{font-size:14px;margin:12px 0 4px}
+.markdown p{margin:8px 0}
+.markdown ul,.markdown ol{margin:8px 0;padding-left:22px}
+.markdown li{margin:4px 0}
+.markdown hr{border:none;border-top:1px solid var(--border);margin:16px 0}
+.markdown strong{color:var(--text)}
+.markdown em{color:#d6dbe4}
+.markdown code{background:#0c0e12;border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+.markdown blockquote{border-left:3px solid var(--border);margin:8px 0;padding:2px 12px;color:var(--muted)}
+.markdown a{color:var(--accent)}
+.markdown.clamped{max-height:50vh}
 a{color:var(--accent)}
 pre{margin:0;white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:1.5;font-family:ui-monospace,Consolas,monospace}
 </style>
@@ -116,6 +130,7 @@ pre{margin:0;white-space:pre-wrap;word-break:break-word;font-size:13px;line-heig
   </div>
   <div id="output"></div>
 </main>
+<script src="marked.umd.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const statusEl = $("status"), outputEl = $("output"), toolbarEl = $("toolbar");
@@ -195,6 +210,24 @@ function contentBlock(text) {
   return wrap;
 }
 
+function markdownBlock(text) {
+  const wrap = document.createElement("div");
+  const body = el("div", "content markdown");
+  const escaped = String(text || "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  body.innerHTML = marked.parse(escaped);
+  wrap.appendChild(body);
+  if ((body.textContent || "").length > 1500) {
+    body.classList.add("clamped");
+    const btn = el("button", "expand", "Show more");
+    btn.addEventListener("click", () => {
+      const open = body.classList.toggle("clamped");
+      btn.textContent = open ? "Show more" : "Show less";
+    });
+    wrap.appendChild(btn);
+  }
+  return wrap;
+}
+
 function sourceLink(title, url, favicon) {
   const a = el("a", "title", title || url);
   a.href = url;
@@ -247,8 +280,11 @@ function renderResearch(d) {
   if (res.content) {
     const card = el("div", "card");
     card.appendChild(el("div", "subhead", "Report"));
-    const text = typeof res.content === "string" ? res.content : JSON.stringify(res.content, null, 2);
-    card.appendChild(contentBlock(text));
+    if (typeof res.content === "string") {
+      card.appendChild(markdownBlock(res.content));
+    } else {
+      card.appendChild(contentBlock(JSON.stringify(res.content, null, 2)));
+    }
     outputEl.appendChild(card);
   }
   if (Array.isArray(res.sources) && res.sources.length) {
