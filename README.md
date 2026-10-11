@@ -39,8 +39,8 @@ and `app.py` exposes `/api/search`, `/api/extract`, and `/api/research`
 
 In the readable view, research reports are rendered as HTML from Markdown
 (headings, lists, bold/italic, links) using a vendored copy of
-[marked](https://github.com/markedjs/marked) (`static/marked.umd.js`, MIT —
-see `static/marked.LICENSE.txt`). The Raw JSON toggle still shows the exact
+[marked](https://github.com/markedjs/marked) (`static/marked.umd.js`, MIT; see
+`static/marked.LICENSE.txt`). The Raw JSON toggle still shows the exact
 API response.
 
 Or as a library:

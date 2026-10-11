@@ -75,6 +75,10 @@ button.primary:disabled{opacity:.5;cursor:default}
 .copy-menu{position:absolute;right:0;top:calc(100% + 4px);background:#1b1f27;border:1px solid var(--border);border-radius:8px;padding:4px;z-index:1000;display:flex;flex-direction:column;min-width:150px}
 .copy-menu button{background:none;border:none;color:var(--text);text-align:left;padding:7px 10px;border-radius:6px;cursor:pointer;font-size:12.5px}
 .copy-menu button:hover{background:#22262f}
+#actionbar{display:none;margin-top:10px;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+#actionbar.visible{display:flex}
+h1{cursor:pointer;user-select:none}
+h1:hover{color:var(--accent)}
 .hidden{display:none}
 a{color:var(--accent)}
 pre{margin:0;white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:1.5;font-family:ui-monospace,Consolas,monospace}
@@ -91,7 +95,7 @@ pre{margin:0;white-space:pre-wrap;word-break:break-word;font-size:13px;line-heig
 </header>
 <main>
   <section id="search" class="panel visible">
-    <p class="tab-desc">Real-time web search. Returns ranked results with content snippets from the live web — the LLM-generated answer is never requested.</p>
+    <p class="tab-desc">Real-time web search. Returns ranked results with content snippets from the live web; the LLM-generated answer is never requested.</p>
     <form id="search-form">
       <label>Query
         <input id="search-query" placeholder="who is Leo Messi?">
@@ -115,7 +119,7 @@ pre{margin:0;white-space:pre-wrap;word-break:break-word;font-size:13px;line-heig
   </section>
 
   <section id="extract" class="panel">
-    <p class="tab-desc">Scrape clean content from one or more URLs (up to 20). Pure extraction — no AI touches the content.</p>
+    <p class="tab-desc">Scrape clean content from one or more URLs (up to 20). Pure extraction; no AI touches the content.</p>
     <form id="extract-form">
       <label>URLs (one per line, max 20)
         <textarea id="extract-urls" rows="4" placeholder="https://example.com"></textarea>
@@ -125,7 +129,7 @@ pre{margin:0;white-space:pre-wrap;word-break:break-word;font-size:13px;line-heig
   </section>
 
   <section id="research" class="panel">
-    <p class="tab-desc">Deep research: searches many sources and produces a cited report. The report is passed through untouched — rendered as Markdown, with the raw JSON always available.</p>
+    <p class="tab-desc">Deep research: searches many sources and produces a cited report. The report is passed through untouched, rendered as Markdown, with the raw JSON always available.</p>
     <form id="research-form">
       <label>Topic or question
         <textarea id="research-query" rows="5" placeholder="latest developments in AI"></textarea>
@@ -148,14 +152,22 @@ pre{margin:0;white-space:pre-wrap;word-break:break-word;font-size:13px;line-heig
     <button class="viewbtn active" data-view="readable">Readable</button>
     <button class="viewbtn" data-view="raw">Raw JSON</button>
   </div>
+  <div id="actionbar">
+    <button class="actionbtn" id="dl-md">Download .md</button>
+    <button class="actionbtn" id="cp-md">Copy Markdown</button>
+    <button class="actionbtn" id="dl-json">Download .json</button>
+    <button class="actionbtn" id="cp-json">Copy JSON</button>
+  </div>
   <div id="output"></div>
 </main>
 <script src="marked.umd.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
-const statusEl = $("status"), outputEl = $("output"), toolbarEl = $("toolbar");
+const statusEl = $("status"), outputEl = $("output"), toolbarEl = $("toolbar"), actionbarEl = $("actionbar");
 let lastData = null;
 let view = "readable";
+
+document.querySelector("h1").addEventListener("click", () => location.reload());
 
 document.querySelectorAll("nav button").forEach((btn) => {
   btn.addEventListener("click", () => {
@@ -164,6 +176,7 @@ document.querySelectorAll("nav button").forEach((btn) => {
     lastData = null;
     outputEl.innerHTML = "";
     toolbarEl.classList.remove("visible");
+    actionbarEl.classList.remove("visible");
     setStatus("");
   });
 });
@@ -260,10 +273,68 @@ function setView(v) {
 }
 
 function showResult(kind, data) {
-  lastData = { kind, data };
+  lastData = { kind, data, md: buildMarkdown(kind, data) };
   toolbarEl.classList.add("visible");
+  actionbarEl.classList.add("visible");
   renderOutput();
 }
+
+function buildMarkdown(kind, data) {
+  if (kind === "search") {
+    const parts = ["# Search: " + (data.query || "")];
+    (data.results || []).forEach((r) => {
+      parts.push("\n## " + (r.title || r.url));
+      parts.push("\n" + (r.url || ""));
+      if (r.content) parts.push("\n" + r.content);
+      if (r.raw_content) parts.push("\n" + r.raw_content);
+    });
+    return parts.join("\n");
+  }
+  if (kind === "extract") {
+    const parts = ["# Extract"];
+    (data.results || []).forEach((r) => {
+      parts.push("\n## " + r.url);
+      if (r.raw_content) parts.push("\n" + r.raw_content);
+    });
+    (data.failed_results || []).forEach((f) => {
+      parts.push("\n## " + f.url + " (failed)");
+      parts.push("\n" + (f.error || ""));
+    });
+    return parts.join("\n");
+  }
+  if (kind === "research") {
+    const res = data.result || data;
+    return typeof res.content === "string" ? res.content : JSON.stringify(res.content, null, 2);
+  }
+  return "";
+}
+
+function markdownFileName() {
+  if (lastData.kind === "research") {
+    const id = lastData.data && lastData.data.request_id ? lastData.data.request_id : "report";
+    return "tavily-research-" + id + ".md";
+  }
+  return "tavily-" + lastData.kind + ".md";
+}
+
+$("dl-md").addEventListener("click", () => {
+  if (!lastData) return;
+  downloadFile(markdownFileName(), lastData.md, "text/markdown");
+  flash($("dl-md"), "Downloaded");
+});
+$("cp-md").addEventListener("click", async () => {
+  if (!lastData) return;
+  if (await copyText(lastData.md)) flash($("cp-md"), "Copied");
+});
+$("dl-json").addEventListener("click", () => {
+  if (!lastData) return;
+  downloadFile("tavily-" + lastData.kind + ".json", JSON.stringify(lastData.data, null, 2), "application/json");
+  flash($("dl-json"), "Downloaded");
+});
+$("cp-json").addEventListener("click", async () => {
+  if (!lastData) return;
+  if (await copyText(JSON.stringify(lastData.data, null, 2))) flash($("cp-json"), "Copied");
+});
 
 function renderOutput() {
   if (!lastData) return;
@@ -440,6 +511,10 @@ function renderSearch(d) {
     card.appendChild(head);
     card.appendChild(el("div", "url", r.url));
     card.appendChild(contentBlock(r.content));
+    if (r.raw_content) {
+      card.appendChild(el("div", "subhead", "Page content"));
+      card.appendChild(markdownBlock(r.raw_content, []));
+    }
     outputEl.appendChild(card);
   });
 }
@@ -450,7 +525,7 @@ function renderExtract(d) {
   ok.forEach((r) => {
     const card = el("div", "card");
     card.appendChild(sourceLink(r.url, r.url, r.favicon));
-    card.appendChild(contentBlock(r.raw_content));
+    card.appendChild(markdownBlock(r.raw_content, []));
     outputEl.appendChild(card);
   });
   failed.forEach((f) => {
