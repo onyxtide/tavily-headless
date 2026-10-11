@@ -23,6 +23,20 @@ python cli.py extract "https://en.wikipedia.org/wiki/Lionel_Messi,https://exampl
 python cli.py research "latest developments in AI" --model mini
 ```
 
+### Standalone page
+
+Serves a self-contained web UI (no build step, no CDN) with Search, Extract,
+and Research tabs:
+
+```
+python cli.py web --port 8000
+```
+
+Then open http://127.0.0.1:8000. Your API key stays server-side in `.env`.
+The page can also be used as a skeleton: `static/index.html` is the front end
+and `app.py` exposes `/api/search`, `/api/extract`, and `/api/research`
+(plus `GET /api/research?id=...` for task polling).
+
 Or as a library:
 
 ```python

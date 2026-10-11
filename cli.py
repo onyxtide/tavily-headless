@@ -1,6 +1,7 @@
 import argparse
 import json
 
+from app import run as run_web
 from client import extract_headless, research_headless, search_headless
 
 
@@ -38,7 +39,15 @@ def main():
     p_research.add_argument("--interval", type=float, default=5)
     p_research.add_argument("--timeout", type=float, default=600)
 
+    p_web = sub.add_parser("web", help="serve the standalone page")
+    p_web.add_argument("--port", type=int, default=8000)
+    p_web.add_argument("--host", default="127.0.0.1")
+
     args = parser.parse_args()
+
+    if args.command == "web":
+        run_web(host=args.host, port=args.port)
+        return
 
     if args.command == "search":
         response = search_headless(

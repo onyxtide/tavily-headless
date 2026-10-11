@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tavily-headless</title>
+<style>
+:root{--bg:#0f1115;--panel:#171a21;--border:#2a2f3a;--text:#e6e9ef;--muted:#9aa3b2;--accent:#4f8cff}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text)}
+header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;gap:24px;align-items:baseline}
+h1{font-size:16px;margin:0;font-weight:600}
+nav{display:flex;gap:6px}
+nav button{background:none;border:1px solid transparent;color:var(--muted);padding:6px 12px;border-radius:6px;cursor:pointer;font-size:14px}
+nav button.active{color:var(--text);border-color:var(--border);background:var(--panel)}
+main{max-width:860px;margin:24px auto;padding:0 20px}
+.panel{display:none}
+.panel.visible{display:block}
+form{display:flex;flex-direction:column;gap:10px;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px}
+label{font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:6px}
+input,select,textarea{background:#0c0e12;border:1px solid var(--border);color:var(--text);border-radius:6px;padding:9px 10px;font-size:14px;font-family:inherit}
+.row{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.row label{flex-direction:row;align-items:center;gap:6px}
+.row input[type=number]{width:80px}
+button.primary{background:var(--accent);border:none;color:#fff;padding:9px 16px;border-radius:6px;cursor:pointer;font-size:14px;align-self:flex-start}
+button.primary:disabled{opacity:.5;cursor:default}
+#status{margin-top:14px;color:var(--muted);font-size:13px;min-height:18px}
+#status.error{color:#ff7b72}
+#output{margin-top:14px;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px;overflow:auto;max-height:70vh}
+pre{margin:0;white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:1.5;font-family:ui-monospace,Consolas,monospace}
+a{color:var(--accent)}
+.sources{margin-top:12px}
+.sources a{display:block;margin:4px 0;font-size:13px}
+</style>
+</head>
+<body>
+<header>
+  <h1>tavily-headless</h1>
+  <nav>
+    <button data-tab="search" class="active">Search</button>
+    <button data-tab="extract">Extract</button>
+    <button data-tab="research">Research</button>
+  </nav>
+</header>
+<main>
+  <section id="search" class="panel visible">
+    <form id="search-form">
+      <label>Query
+        <input id="search-query" placeholder="who is Leo Messi?">
+      </label>
+      <div class="row">
+        <label>Depth
+          <select id="search-depth">
+            <option>basic</option>
+            <option>advanced</option>
+            <option>fast</option>
+            <option>ultra-fast</option>
+          </select>
+        </label>
+        <label>Max results
+          <input id="search-max" type="number" min="1" max="20" value="10">
+        </label>
+        <label><input id="search-raw" type="checkbox" checked> include raw content</label>
+      </div>
+      <button class="primary" type="submit">Search</button>
+    </form>
+  </section>
+
+  <section id="extract" class="panel">
+    <form id="extract-form">
+      <label>URLs (one per line, max 20)
+        <textarea id="extract-urls" rows="4" placeholder="https://example.com"></textarea>
+      </label>
+      <button class="primary" type="submit">Extract</button>
+    </form>
+  </section>
+
+  <section id="research" class="panel">
+    <form id="research-form">
+      <label>Topic or question
+        <input id="research-query" placeholder="latest developments in AI">
+      </label>
+      <div class="row">
+        <label>Model
+          <select id="research-model">
+            <option>mini</option>
+            <option>pro</option>
+            <option>auto</option>
+          </select>
+        </label>
+      </div>
+      <button class="primary" type="submit" id="research-btn">Run research</button>
+    </form>
+  </section>
+
+  <div id="status"></div>
+  <div id="output"></div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const statusEl = $("status"), outputEl = $("output");
+
+document.querySelectorAll("nav button").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("active", b === btn));
+    document.querySelectorAll(".panel").forEach((p) => p.classList.toggle("visible", p.id === btn.dataset.tab));
+  });
+});
+
+function setStatus(text, isError) {
+  statusEl.textContent = text || "";
+  statusEl.className = isError ? "error" : "";
+}
+
+function showJSON(obj) {
+  outputEl.innerHTML = "";
+  const pre = document.createElement("pre");
+  pre.textContent = JSON.stringify(obj, null, 2);
+  outputEl.appendChild(pre);
+}
+
+async function postJSON(url, body) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+$("search-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  setStatus("Searching...");
+  try {
+    const data = await postJSON("/api/search", {
+      query: $("search-query").value,
+      depth: $("search-depth").value,
+      max_results: parseInt($("search-max").value, 10) || 10,
+      include_raw: $("search-raw").checked,
+    });
+    showJSON(data);
+    setStatus(data.results ? data.results.length + " results" : "done");
+  } catch (err) { setStatus(err.message, true); }
+});
+
+$("extract-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const urls = $("extract-urls").value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  setStatus("Extracting...");
+  try {
+    const data = await postJSON("/api/extract", { urls });
+    showJSON(data);
+    setStatus("");
+  } catch (err) { setStatus(err.message, true); }
+});
+
+$("research-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = $("research-btn");
+  btn.disabled = true;
+  try {
+    setStatus("Starting research task...");
+    const started = await postJSON("/api/research", {
+      query: $("research-query").value,
+      model: $("research-model").value,
+    });
+    let task;
+    while (true) {
+      const res = await fetch("/api/research?id=" + encodeURIComponent(started.request_id));
+      task = await res.json();
+      if (task.status === "completed") break;
+      if (task.status === "failed") throw new Error(task.error || "task failed");
+      setStatus("Research in progress (" + (task.status || "pending") + ")...");
+      await new Promise((r) => setTimeout(r, 4000));
+    }
+    outputEl.innerHTML = "";
+    const pre = document.createElement("pre");
+    pre.textContent = typeof task.result.content === "string"
+      ? task.result.content
+      : JSON.stringify(task.result.content, null, 2);
+    outputEl.appendChild(pre);
+    if (Array.isArray(task.result.sources) && task.result.sources.length) {
+      const div = document.createElement("div");
+      div.className = "sources";
+      task.result.sources.forEach((s) => {
+        const a = document.createElement("a");
+        a.href = s.url;
+        a.target = "_blank";
+        a.rel = "noopener";
+        a.textContent = s.title || s.url;
+        div.appendChild(a);
+      });
+      outputEl.appendChild(div);
+    }
+    setStatus("completed");
+  } catch (err) {
+    setStatus(err.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
