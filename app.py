@@ -74,10 +74,14 @@ class Handler(BaseHTTPRequestHandler):
                     search_depth=payload.get("depth", "basic"),
                     max_results=int(payload.get("max_results") or 10),
                     include_raw_content=bool(payload.get("include_raw", True)),
+                    include_favicon=True,
                 )
                 self._json(response)
             elif parsed.path == "/api/extract":
-                response = extract_headless(payload.get("urls", []))
+                response = extract_headless(
+                    payload.get("urls", []),
+                    include_favicon=True,
+                )
                 self._json(response)
             elif parsed.path == "/api/research":
                 self._start_research(payload)

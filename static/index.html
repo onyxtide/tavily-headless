@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>tavily-headless</title>
 <style>
-:root{--bg:#0f1115;--panel:#171a21;--border:#2a2f3a;--text:#e6e9ef;--muted:#9aa3b2;--accent:#4f8cff}
+:root{--bg:#0f1115;--panel:#171a21;--border:#2a2f3a;--text:#e6e9ef;--muted:#9aa3b2;--accent:#4f8cff;--danger:#ff7b72}
 *{box-sizing:border-box}
 body{margin:0;font-family:system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text)}
 header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;gap:24px;align-items:baseline}
@@ -25,12 +25,28 @@ input,select,textarea{background:#0c0e12;border:1px solid var(--border);color:va
 button.primary{background:var(--accent);border:none;color:#fff;padding:9px 16px;border-radius:6px;cursor:pointer;font-size:14px;align-self:flex-start}
 button.primary:disabled{opacity:.5;cursor:default}
 #status{margin-top:14px;color:var(--muted);font-size:13px;min-height:18px}
-#status.error{color:#ff7b72}
-#output{margin-top:14px;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px;overflow:auto;max-height:70vh}
-pre{margin:0;white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:1.5;font-family:ui-monospace,Consolas,monospace}
+#status.error{color:var(--danger)}
+#toolbar{display:none;margin-top:14px;justify-content:flex-end;gap:6px}
+#toolbar.visible{display:flex}
+.viewbtn{background:var(--panel);border:1px solid var(--border);color:var(--muted);padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px}
+.viewbtn.active{color:var(--text);border-color:var(--accent)}
+#output{margin-top:10px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:12px}
+.card a.title{font-size:15px;font-weight:600;color:var(--text);text-decoration:none}
+.card a.title:hover{text-decoration:underline}
+.favicon{width:16px;height:16px;border-radius:3px;vertical-align:-3px;margin-right:6px}
+.score{display:inline-block;background:#1c2942;color:#8fb4ff;border-radius:999px;padding:2px 9px;font-size:11px;margin-left:8px}
+.url{font-size:12px;color:var(--muted);word-break:break-all;margin:4px 0 8px}
+.meta{color:var(--muted);font-size:13px;margin:6px 0 12px}
+.subhead{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px}
+.content{margin:0;white-space:pre-wrap;word-break:break-word;font-size:13.5px;line-height:1.6;color:#c9d1d9}
+.clamped{max-height:96px;overflow:hidden}
+.expand{background:none;border:none;color:var(--accent);cursor:pointer;padding:6px 0 0;font-size:12px}
+.card.fail{border-color:#5a2a30;background:#231418}
+.card.fail .url{color:var(--danger)}
+.sources .card{padding:10px 14px;margin-bottom:8px}
 a{color:var(--accent)}
-.sources{margin-top:12px}
-.sources a{display:block;margin:4px 0;font-size:13px}
+pre{margin:0;white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:1.5;font-family:ui-monospace,Consolas,monospace}
 </style>
 </head>
 <body>
@@ -94,17 +110,31 @@ a{color:var(--accent)}
   </section>
 
   <div id="status"></div>
+  <div id="toolbar">
+    <button class="viewbtn active" data-view="readable">Readable</button>
+    <button class="viewbtn" data-view="raw">Raw JSON</button>
+  </div>
   <div id="output"></div>
 </main>
 <script>
 const $ = (id) => document.getElementById(id);
-const statusEl = $("status"), outputEl = $("output");
+const statusEl = $("status"), outputEl = $("output"), toolbarEl = $("toolbar");
+let lastData = null;
+let view = "readable";
 
 document.querySelectorAll("nav button").forEach((btn) => {
   btn.addEventListener("click", () => {
     document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("active", b === btn));
     document.querySelectorAll(".panel").forEach((p) => p.classList.toggle("visible", p.id === btn.dataset.tab));
+    lastData = null;
+    outputEl.innerHTML = "";
+    toolbarEl.classList.remove("visible");
+    setStatus("");
   });
+});
+
+document.querySelectorAll(".viewbtn").forEach((btn) => {
+  btn.addEventListener("click", () => setView(btn.dataset.view));
 });
 
 function setStatus(text, isError) {
@@ -112,11 +142,126 @@ function setStatus(text, isError) {
   statusEl.className = isError ? "error" : "";
 }
 
-function showJSON(obj) {
+function setView(v) {
+  view = v;
+  document.querySelectorAll(".viewbtn").forEach((b) => b.classList.toggle("active", b.dataset.view === v));
+  renderOutput();
+}
+
+function showResult(kind, data) {
+  lastData = { kind, data };
+  toolbarEl.classList.add("visible");
+  renderOutput();
+}
+
+function renderOutput() {
+  if (!lastData) return;
   outputEl.innerHTML = "";
-  const pre = document.createElement("pre");
-  pre.textContent = JSON.stringify(obj, null, 2);
-  outputEl.appendChild(pre);
+  if (view === "raw") {
+    const pre = document.createElement("pre");
+    pre.textContent = JSON.stringify(lastData.data, null, 2);
+    outputEl.appendChild(pre);
+    return;
+  }
+  if (lastData.kind === "search") renderSearch(lastData.data);
+  else if (lastData.kind === "extract") renderExtract(lastData.data);
+  else if (lastData.kind === "research") renderResearch(lastData.data);
+}
+
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text != null) node.textContent = text;
+  return node;
+}
+
+function meta(text) {
+  return el("div", "meta", text);
+}
+
+function contentBlock(text) {
+  const wrap = document.createElement("div");
+  const body = el("div", "content", text || "");
+  wrap.appendChild(body);
+  if ((text || "").length > 700) {
+    body.classList.add("clamped");
+    const btn = el("button", "expand", "Show more");
+    btn.addEventListener("click", () => {
+      const open = body.classList.toggle("clamped");
+      btn.textContent = open ? "Show more" : "Show less";
+    });
+    wrap.appendChild(btn);
+  }
+  return wrap;
+}
+
+function sourceLink(title, url, favicon) {
+  const a = el("a", "title", title || url);
+  a.href = url;
+  a.target = "_blank";
+  a.rel = "noopener";
+  if (favicon) {
+    const img = document.createElement("img");
+    img.className = "favicon";
+    img.src = favicon;
+    img.alt = "";
+    a.prepend(img);
+  }
+  return a;
+}
+
+function renderSearch(d) {
+  outputEl.appendChild(meta((d.results || []).length + " results · " + d.response_time + "s"));
+  (d.results || []).forEach((r) => {
+    const card = el("div", "card");
+    const head = document.createElement("div");
+    head.appendChild(sourceLink(r.title, r.url, r.favicon));
+    if (r.score != null) head.appendChild(el("span", "score", r.score.toFixed(2)));
+    card.appendChild(head);
+    card.appendChild(el("div", "url", r.url));
+    card.appendChild(contentBlock(r.content));
+    outputEl.appendChild(card);
+  });
+}
+
+function renderExtract(d) {
+  const ok = d.results || [], failed = d.failed_results || [];
+  outputEl.appendChild(meta(ok.length + " extracted · " + failed.length + " failed"));
+  ok.forEach((r) => {
+    const card = el("div", "card");
+    card.appendChild(sourceLink(r.url, r.url, r.favicon));
+    card.appendChild(contentBlock(r.raw_content));
+    outputEl.appendChild(card);
+  });
+  failed.forEach((f) => {
+    const card = el("div", "card fail");
+    card.appendChild(el("div", "url", f.url));
+    card.appendChild(el("div", "content", f.error || "extraction failed"));
+    outputEl.appendChild(card);
+  });
+}
+
+function renderResearch(d) {
+  const res = d.result || d;
+  outputEl.appendChild(meta("status: " + (d.status || "completed")));
+  if (res.content) {
+    const card = el("div", "card");
+    card.appendChild(el("div", "subhead", "Report"));
+    const text = typeof res.content === "string" ? res.content : JSON.stringify(res.content, null, 2);
+    card.appendChild(contentBlock(text));
+    outputEl.appendChild(card);
+  }
+  if (Array.isArray(res.sources) && res.sources.length) {
+    const wrap = el("div", "sources");
+    wrap.appendChild(el("div", "subhead", "Sources"));
+    res.sources.forEach((s) => {
+      const card = el("div", "card");
+      card.appendChild(sourceLink(s.title, s.url, s.favicon));
+      card.appendChild(el("div", "url", s.url));
+      wrap.appendChild(card);
+    });
+    outputEl.appendChild(wrap);
+  }
 }
 
 async function postJSON(url, body) {
@@ -140,8 +285,8 @@ $("search-form").addEventListener("submit", async (e) => {
       max_results: parseInt($("search-max").value, 10) || 10,
       include_raw: $("search-raw").checked,
     });
-    showJSON(data);
-    setStatus(data.results ? data.results.length + " results" : "done");
+    showResult("search", data);
+    setStatus("");
   } catch (err) { setStatus(err.message, true); }
 });
 
@@ -151,7 +296,7 @@ $("extract-form").addEventListener("submit", async (e) => {
   setStatus("Extracting...");
   try {
     const data = await postJSON("/api/extract", { urls });
-    showJSON(data);
+    showResult("extract", data);
     setStatus("");
   } catch (err) { setStatus(err.message, true); }
 });
@@ -175,26 +320,8 @@ $("research-form").addEventListener("submit", async (e) => {
       setStatus("Research in progress (" + (task.status || "pending") + ")...");
       await new Promise((r) => setTimeout(r, 4000));
     }
-    outputEl.innerHTML = "";
-    const pre = document.createElement("pre");
-    pre.textContent = typeof task.result.content === "string"
-      ? task.result.content
-      : JSON.stringify(task.result.content, null, 2);
-    outputEl.appendChild(pre);
-    if (Array.isArray(task.result.sources) && task.result.sources.length) {
-      const div = document.createElement("div");
-      div.className = "sources";
-      task.result.sources.forEach((s) => {
-        const a = document.createElement("a");
-        a.href = s.url;
-        a.target = "_blank";
-        a.rel = "noopener";
-        a.textContent = s.title || s.url;
-        div.appendChild(a);
-      });
-      outputEl.appendChild(div);
-    }
-    setStatus("completed");
+    showResult("research", task);
+    setStatus("");
   } catch (err) {
     setStatus(err.message, true);
   } finally {
