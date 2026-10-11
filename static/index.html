@@ -59,6 +59,13 @@ button.primary:disabled{opacity:.5;cursor:default}
 .markdown blockquote{border-left:3px solid var(--border);margin:8px 0;padding:2px 12px;color:var(--muted)}
 .markdown a{color:var(--accent)}
 .markdown.clamped{max-height:50vh}
+.cite{display:inline-block;background:#1c2942;color:#8fb4ff;border-radius:4px;padding:0 5px;margin:0 2px;font-size:11px;cursor:pointer;line-height:1.6}
+.cite:hover{background:#24345c}
+.cite-popup{position:absolute;z-index:1000;min-width:260px;max-width:340px;background:#1b1f27;border:1px solid var(--border);border-radius:8px;padding:6px;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.cite-item{display:block;padding:8px;border-radius:6px;text-decoration:none;color:var(--text)}
+.cite-item:hover{background:#22262f}
+.cite-title{display:block;font-size:12.5px;font-weight:600;color:var(--text)}
+.cite-url{display:block;font-size:11px;color:var(--muted);word-break:break-all;margin-top:2px}
 a{color:var(--accent)}
 pre{margin:0;white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:1.5;font-family:ui-monospace,Consolas,monospace}
 </style>
@@ -210,11 +217,12 @@ function contentBlock(text) {
   return wrap;
 }
 
-function markdownBlock(text) {
+function markdownBlock(text, sources) {
   const wrap = document.createElement("div");
   const body = el("div", "content markdown");
   const escaped = String(text || "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   body.innerHTML = marked.parse(escaped);
+  if (sources && sources.length) citationize(body, sources);
   wrap.appendChild(body);
   if ((body.textContent || "").length > 1500) {
     body.classList.add("clamped");
@@ -226,6 +234,96 @@ function markdownBlock(text) {
     wrap.appendChild(btn);
   }
   return wrap;
+}
+
+let citePopup = null;
+
+function closeCitePopup() {
+  if (citePopup) {
+    citePopup.remove();
+    citePopup = null;
+  }
+  document.removeEventListener("click", closeCitePopup);
+}
+
+function showCitePopup(anchor, nums, sources) {
+  closeCitePopup();
+  citePopup = document.createElement("div");
+  citePopup.className = "cite-popup";
+  nums.forEach((n) => {
+    const s = sources[n - 1];
+    const row = document.createElement("a");
+    row.className = "cite-item";
+    if (!s) {
+      row.href = "#";
+      row.textContent = "[" + n + "] source not found";
+      row.addEventListener("click", (e) => e.preventDefault());
+    } else {
+      row.href = s.url;
+      row.target = "_blank";
+      row.rel = "noopener";
+      const title = el("span", "cite-title", s.title || s.url);
+      const url = el("span", "cite-url", s.url);
+      row.appendChild(title);
+      row.appendChild(url);
+      if (s.favicon) {
+        const img = document.createElement("img");
+        img.className = "favicon";
+        img.src = s.favicon;
+        img.alt = "";
+        row.prepend(img);
+      }
+    }
+    citePopup.appendChild(row);
+  });
+  citePopup.addEventListener("click", (e) => e.stopPropagation());
+  document.body.appendChild(citePopup);
+  const rect = anchor.getBoundingClientRect();
+  const estHeight = nums.length * 64 + 20;
+  let left = Math.min(rect.left + window.scrollX, window.innerWidth - 360);
+  left = Math.max(left, window.scrollX + 8);
+  let top = rect.bottom + window.scrollY + 6;
+  if (rect.bottom + estHeight > window.innerHeight) {
+    top = Math.max(rect.top + window.scrollY - estHeight - 6, window.scrollY + 8);
+  }
+  citePopup.style.left = left + "px";
+  citePopup.style.top = top + "px";
+  document.addEventListener("click", closeCitePopup);
+}
+
+function makeCiteChip(raw, sources) {
+  const nums = Array.from(raw.matchAll(/\[(\d+)\]/g)).map((m) => parseInt(m[1], 10));
+  const chip = document.createElement("span");
+  chip.className = "cite";
+  chip.textContent = raw;
+  chip.addEventListener("click", (e) => {
+    e.stopPropagation();
+    showCitePopup(chip, nums, sources);
+  });
+  return chip;
+}
+
+function citationize(root, sources) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const textNodes = [];
+  while (walker.nextNode()) textNodes.push(walker.currentNode);
+  textNodes.forEach((node) => {
+    const parent = node.parentElement;
+    if (!parent || parent.closest(".cite, .cite-popup")) return;
+    const text = node.textContent;
+    if (!/\[\d+\]/.test(text)) return;
+    const frag = document.createDocumentFragment();
+    const re = /(?:\[\d+\])+/g;
+    let m;
+    let last = 0;
+    while ((m = re.exec(text))) {
+      if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+      frag.appendChild(makeCiteChip(m[0], sources));
+      last = re.lastIndex;
+    }
+    if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+    parent.replaceChild(frag, node);
+  });
 }
 
 function sourceLink(title, url, favicon) {
@@ -281,7 +379,7 @@ function renderResearch(d) {
     const card = el("div", "card");
     card.appendChild(el("div", "subhead", "Report"));
     if (typeof res.content === "string") {
-      card.appendChild(markdownBlock(res.content));
+      card.appendChild(markdownBlock(res.content, res.sources || []));
     } else {
       card.appendChild(contentBlock(JSON.stringify(res.content, null, 2)));
     }
