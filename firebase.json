@@ -1,0 +1,19 @@
+{
+  "hosting": {
+    "public": "public",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [
+      { "source": "/api/search", "function": "api_search" },
+      { "source": "/api/extract", "function": "api_extract" },
+      { "source": "/api/research", "function": "api_research" }
+    ]
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "runtime": "python312",
+      "ignore": ["**/.*", "**/__pycache__/**", "**/venv/**"]
+    }
+  ]
+}

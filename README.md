@@ -33,15 +33,37 @@ python cli.py web --port 8000
 ```
 
 Then open http://127.0.0.1:8000. Your API key stays server-side in `.env`.
-The page can also be used as a skeleton: `static/index.html` is the front end
+The page can also be used as a skeleton: `public/index.html` is the front end
 and `app.py` exposes `/api/search`, `/api/extract`, and `/api/research`
 (plus `GET /api/research?id=...` for task polling).
 
 In the readable view, research reports are rendered as HTML from Markdown
 (headings, lists, bold/italic, links) using a vendored copy of
-[marked](https://github.com/markedjs/marked) (`static/marked.umd.js`, MIT; see
-`static/marked.LICENSE.txt`). The Raw JSON toggle still shows the exact
+[marked](https://github.com/markedjs/marked) (`public/marked.umd.js`, MIT; see
+`public/marked.LICENSE.txt`). The Raw JSON toggle still shows the exact
 API response.
+
+## Deploy to Firebase (always-on link)
+
+The same page runs on Firebase Hosting with a Python Cloud Functions backend.
+Your Tavily key is stored as a Cloud Secret and never reaches the browser.
+
+Prerequisites: a Firebase project on the Blaze (pay-as-you-go) plan with
+Firestore enabled, plus the Firebase CLI (`npm i -g firebase-tools`).
+
+```
+firebase login
+firebase use <your-project-id>
+firebase functions:secrets:set TAVILY_API_KEY
+firebase deploy
+```
+
+Your site is then live at `https://<your-project-id>.web.app`.
+
+- `functions/main.py` exposes `api_search`, `api_extract`, and `api_research`.
+- Research tasks are stored in a Firestore `research_tasks` collection; the
+  `research_worker` trigger polls Tavily in the background and the page polls
+  `/api/research?id=...` for status.
 
 Or as a library:
 

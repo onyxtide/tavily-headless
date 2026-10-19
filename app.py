@@ -8,7 +8,7 @@ from uuid import uuid4
 from client import extract_headless, research_headless, search_headless
 
 STATIC_DIR = os.path.normpath(
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "public")
 )
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
