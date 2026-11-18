@@ -865,6 +865,7 @@ def research_worker(event: firestore_fn.Event) -> None:
                     "content": result.get("content"),
                     "sources": result.get("sources"),
                     "usage": result.get("usage"),
+                    "request_id": result.get("request_id") or request_id,
                 },
                 "finished_at": firestore.SERVER_TIMESTAMP,
             }
