@@ -5,7 +5,18 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
-from client import extract_headless, research_headless, search_headless
+from client import (
+    crawl_headless,
+    extract_headless,
+    map_headless,
+    research_headless,
+    search_headless,
+    validate_crawl_body,
+    validate_extract_body,
+    validate_map_body,
+    validate_research_body,
+    validate_search_body,
+)
 
 STATIC_DIR = os.path.normpath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "public")
@@ -18,6 +29,7 @@ CONTENT_TYPES = {
     ".svg": "image/svg+xml",
     ".png": "image/png",
     ".ico": "image/x-icon",
+    ".woff2": "font/woff2",
 }
 
 _tasks = {}
@@ -29,7 +41,7 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def _json(self, obj, status=200):
-        body = json.dumps(obj, indent=2).encode("utf-8")
+        body = json.dumps(obj, indent=2, default=str).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -72,36 +84,36 @@ class Handler(BaseHTTPRequestHandler):
         try:
             payload = self._body()
             if parsed.path == "/api/search":
-                response = search_headless(
-                    payload.get("query", ""),
-                    search_depth=payload.get("depth", "basic"),
-                    max_results=int(payload.get("max_results") or 10),
-                    include_raw_content=bool(payload.get("include_raw", True)),
-                    include_favicon=True,
-                )
-                self._json(response)
+                self._json(search_headless(**validate_search_body(payload)))
             elif parsed.path == "/api/extract":
-                response = extract_headless(
-                    payload.get("urls", []),
-                    include_favicon=True,
-                )
-                self._json(response)
+                self._json(extract_headless(**validate_extract_body(payload)))
+            elif parsed.path == "/api/crawl":
+                self._json(crawl_headless(**validate_crawl_body(payload)))
+            elif parsed.path == "/api/map":
+                self._json(map_headless(**validate_map_body(payload)))
             elif parsed.path == "/api/research":
                 self._start_research(payload)
             else:
                 self._json({"error": "not found"}, 404)
-        except RuntimeError as exc:
+        except (ValueError, RuntimeError) as exc:
             self._json({"error": str(exc)}, 400)
         except Exception as exc:
             self._json({"error": str(exc)}, 500)
 
     def _start_research(self, payload):
+        query, params, files_payload, files_meta = validate_research_body(payload)
         task_id = uuid4().hex
         with _tasks_lock:
-            _tasks[task_id] = {"status": "pending"}
+            _tasks[task_id] = {
+                "status": "pending",
+                "query": query,
+                "model": params["model"],
+                "params": params,
+                "files_meta": files_meta,
+            }
         thread = threading.Thread(
             target=_run_research,
-            args=(task_id, payload.get("query", ""), payload.get("model", "mini")),
+            args=(task_id, query, params, files_payload),
             daemon=True,
         )
         thread.start()
@@ -111,17 +123,37 @@ class Handler(BaseHTTPRequestHandler):
         task_id = (query.get("id") or [None])[0]
         with _tasks_lock:
             task = _tasks.get(task_id)
-        if not task:
+            snapshot = dict(task) if task else None
+        if not snapshot:
             self._json({"error": "unknown task"}, 404)
         else:
-            self._json(task)
+            self._json(snapshot)
 
 
-def _run_research(task_id, query, model):
-    try:
-        result = research_headless(query, model=model)
+def _run_research(task_id, query, params, files_payload):
+    def on_progress(progress):
         with _tasks_lock:
-            _tasks[task_id].update(status="completed", result=result)
+            task = _tasks.get(task_id)
+            if task:
+                task["status"] = "running"
+                task["phase"] = progress.get("phase")
+                task["progress"] = progress
+
+    try:
+        kwargs = {
+            k: v for k, v in params.items() if k != "model" and v not in (None, [], {})
+        }
+        if files_payload:
+            kwargs["files"] = files_payload
+        result = research_headless(
+            query, model=params["model"], on_progress=on_progress, **kwargs
+        )
+        with _tasks_lock:
+            task = _tasks[task_id]
+            prog = task.get("progress")
+            if isinstance(prog, dict):
+                task["progress"] = {k: v for k, v in prog.items() if k != "draft"}
+            task.update(status="completed", result=result)
     except Exception as exc:
         with _tasks_lock:
             _tasks[task_id].update(status="failed", error=str(exc))
